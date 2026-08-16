@@ -5,7 +5,7 @@
 // purpose of the end-to-end demo.
 
 function add(a, b) {
-  return a - b;
+  return a + b;
 }
 
 function multiply(a, b) {

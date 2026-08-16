@@ -1,0 +1,48 @@
+# Generic agent context — the contract between the orchestrator and every
+# agent run. The Rust schema (crates/agent-core/src/schema.rs) is the source
+# of truth; this file documents the wire format.
+
+goal: "The high-level objective. Short, concrete, verifiable."
+project: "Name of the repository/project being worked on."
+
+agent:
+  role: "planner | developer | qa | evaluator | fixer"
+  personality: "One-line behavioral note, e.g. 'careful and concise'"
+  skills: ["e.g. javascript", "testing"]
+
+stage:
+  id: "Stage sequence number / id from the plan"
+  objective: "What this stage must accomplish"
+
+tasks: ["Current task(s) for this stage"]
+
+acceptance_criteria:
+  - "Must be verifiable (ideally by a test)"
+  - "Example: 'node --test work/ passes'"
+
+guardrails:
+  - "Only edit files under the work dir"
+  - "Never remove tests"
+  - "No unrelated changes"
+
+environment:
+  work_dir: "Directory agents may modify (default: work)"
+  llm_provider: "zen | groq | mock"
+  model: "Model name used for this run"
+  retry_limit: "Max evaluator-FAIL fix rounds (default 3)"
+  attempt: "Current attempt number"
+
+history:
+  summary: "One-paragraph state summary"
+  previous_results: ["Summaries of earlier stages, newest first"]
+
+repository:
+  commit_hash: "HEAD commit at run start (filled by the runner)"
+  recent_commits: ["Last 5 commit messages"]
+  work_dir_files: ["Relative file list under the work dir"]
+  files: ["Capped file contents, '===== path =====' separated"]
+  test_output: "Captured `node --test <work>` output (truncated)"
+
+tools: ["git", "node --test"]
+
+mcp: [] # reserved for future MCP tool bindings; always empty for now

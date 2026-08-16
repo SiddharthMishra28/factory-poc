@@ -1,0 +1,17 @@
+[package]
+name = "agent-runner"
+version.workspace = true
+edition.workspace = true
+description = "The single reusable agent executable: loads context, enriches, works, tests, commits, reports"
+
+[[bin]]
+name = "agent-runner"
+path = "src/main.rs"
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true

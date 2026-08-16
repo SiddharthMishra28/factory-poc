@@ -1,0 +1,77 @@
+name: agent
+
+# Dispatch-only: the worker orchestrates everything; pushes never retrigger
+# this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      goal_id:
+        description: "Goal ID (from the orchestrator)"
+        required: true
+      stage_id:
+        description: "Stage ID to execute"
+        required: true
+      role:
+        description: "Agent role: planner|developer|qa|evaluator|fixer"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-${{ github.event.inputs.goal_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch orchestrator context
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
+        run: |
+          if [ -z "${WORKER_URL:-}" ]; then
+            echo "::error::WORKER_URL secret not set"
+            exit 1
+          fi
+          mkdir -p .github/agent
+          curl -fsSL "$WORKER_URL/api/context/${{ github.event.inputs.goal_id }}/${{ github.event.inputs.stage_id }}" \
+            -H "x-agent-token: $AGENT_TOKEN" \
+            -o .github/agent/context.json
+
+      - name: Run agent
+        timeout-minutes: 25
+        env:
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          ZEN_API_KEY: ${{ secrets.ZEN_API_KEY }}
+          ZEN_MODEL: ${{ secrets.ZEN_MODEL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
+        run: |
+          git config user.email "factory-agent@users.noreply.github.com"
+          git config user.name "factory-agent"
+          cargo run --release -p agent-runner -- \
+            --goal-id "${{ github.event.inputs.goal_id }}" \
+            --stage-id "${{ github.event.inputs.stage_id }}" \
+            --role "${{ github.event.inputs.role }}" \
+            --context-file .github/agent/context.json

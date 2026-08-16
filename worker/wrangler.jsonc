@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "factory-poc-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "GOAL_ROOM", "class_name": "GoalRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GoalRoom"] }
+  ],
+  "vars": {
+    "RETRY_LIMIT": "3",
+    "LLM_PROVIDER": "zen"
+  }
+}

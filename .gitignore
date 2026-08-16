@@ -1,0 +1,7 @@
+/target
+result.json
+context.json
+.env
+node_modules
+.wrangler
+dist

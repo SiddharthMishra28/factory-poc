@@ -1,0 +1,31 @@
+name: agent-watch
+
+# Safety net: when an agent run finishes (success or failure), ping the
+# orchestrator so it can dispatch the next stage. This covers the case where
+# the runner could not reach the worker directly.
+on:
+  workflow_run:
+    workflows: ["agent"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify orchestrator
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          AGENT_TOKEN: ${{ secrets.AGENT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+        run: |
+          if [ -z "${WORKER_URL:-}" ]; then
+            echo "WORKER_URL not set; nothing to notify"
+            exit 0
+          fi
+          curl -fsS -X POST "$WORKER_URL/api/webhook/github" \
+            -H "Content-Type: application/json" \
+            -H "x-webhook-secret: $WEBHOOK_SECRET" \
+            -d "{\"run_id\":${{ github.event.workflow_run.id }},\"goal_id\":\"${{ github.event.workflow_run.display_title }}\"}" || true

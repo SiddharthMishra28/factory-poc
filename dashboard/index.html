@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>factory-poc dashboard</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font-family: ui-monospace, monospace; margin: 0; background: #0d1117; color: #e6edf3; }
+    header { padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; gap: 16px; align-items: center; }
+    header input { flex: 1; background: #161b22; border: 1px solid #30363d; color: #e6edf3; padding: 8px; border-radius: 6px; }
+    button { background: #238636; border: 0; color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+    button.ghost { background: #21262d; }
+    main { padding: 24px; display: grid; gap: 24px; grid-template-columns: 380px 1fr; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+    .goal { cursor: pointer; padding: 10px; border-radius: 6px; border: 1px solid #30363d; margin-bottom: 8px; }
+    .goal:hover { background: #1c2128; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; margin-left: 8px; }
+    .passed { background: #1f6feb33; color: #58a6ff; }
+    .failed { background: #da36331f; color: #f85149; }
+    .in_progress, .planning { background: #9e6a031f; color: #d29922; }
+    .new { background: #30363d33; color: #8b949e; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #21262d; vertical-align: top; }
+    pre { white-space: pre-wrap; background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; }
+    .muted { color: #8b949e; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>factory-poc</strong>
+    <input id="worker-url" placeholder="Worker URL, e.g. https://factory-poc-worker.xxx.workers.dev" />
+    <button id="refresh" class="ghost">Refresh</button>
+    <button id="create">Create goal</button>
+  </header>
+  <main>
+    <div class="card">
+      <h3>Goals</h3>
+      <div id="goal-list"></div>
+    </div>
+    <div class="card" id="detail">
+      <p class="muted">Select a goal to inspect. The orchestrator dispatches
+      each stage as a GitHub Actions run; the runner commits with
+      <code>[skip ci]</code> and reports results back to the worker.</p>
+    </div>
+  </main>
+  <script>
+    const state = { worker: "", goal: null };
+
+    function base() {
+      return state.worker.replace(/\/+$/, "");
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(base() + path, {
+        headers: { "Content-Type": "application/json" },
+        ...opts,
+      });
+      if (!res.ok) throw new Error((await res.text()) || res.status);
+      return res.json();
+    }
+
+    const statusClass = {
+      new: "new", planning: "planning", in_progress: "in_progress",
+      passed: "passed", failed: "failed",
+    };
+
+    async function loadGoals() {
+      if (!state.worker) return;
+      try {
+        const goals = await api("/api/goals");
+        const list = document.getElementById("goal-list");
+        list.innerHTML = goals.length
+          ? goals.map(g => `
+              <div class="goal" data-id="${g.id}">
+                <div>${g.description.slice(0, 60)}${g.description.length > 60 ? "…" : ""}
+                  <span class="badge ${statusClass[g.status]}">${g.status}</span></div>
+                <div class="muted" style="font-size:12px">${new Date(g.created_at).toLocaleString()}
+                  · attempts ${g.attempts}/${g.retry_limit}</div>
+              </div>`).join("")
+          : '<p class="muted">No goals yet.</p>';
+        document.querySelectorAll(".goal").forEach(el =>
+          el.addEventListener("click", () => loadGoal(el.dataset.id)));
+      } catch (e) {
+        document.getElementById("goal-list").innerHTML =
+          `<p class="muted">Error: ${e.message}</p>`;
+      }
+    }
+
+    async function loadGoal(id) {
+      state.goal = id;
+      const detail = document.getElementById("detail");
+      try {
+        const g = await api("/api/goals/" + id);
+        detail.innerHTML = `
+          <h3>${g.description}
+            <span class="badge ${statusClass[g.status]}">${g.status}</span></h3>
+          <div class="muted">${g.id} · created ${new Date(g.created_at).toLocaleString()}</div>
+          <h4>Stages</h4>
+          <table><tr><th>id</th><th>role</th><th>status</th><th>objective</th></tr>
+          ${g.stages.map(s => `
+            <tr><td>${s.id}</td><td>${s.role}</td><td>${s.status}</td><td>${s.objective || ""}</td></tr>`).join("")}
+          </table>
+          <h4>History</h4>
+          <ul>${g.history.map(h => `<li>${h}</li>`).join("") || '<li class="muted">none</li>'}</ul>
+          ${g.stages.filter(s => s.result).length ? `<h4>Last result</h4><pre>${JSON.stringify(g.stages.filter(s => s.result).at(-1).result, null, 2)}</pre>` : ""}`;
+      } catch (e) {
+        detail.innerHTML = `<p class="muted">Error: ${e.message}</p>`;
+      }
+    }
+
+    async function createGoal() {
+      const desc = prompt("Goal description", "Make the calculator in work/ correct; all node --test tests must pass");
+      if (!desc) return;
+      try {
+        await api("/api/goals", {
+          method: "POST",
+          body: JSON.stringify({ description: desc }),
+        });
+        await loadGoals();
+      } catch (e) {
+        alert("create failed: " + e.message);
+      }
+    }
+
+    document.getElementById("worker-url").addEventListener("change", e => {
+      state.worker = e.target.value;
+      localStorage.setItem("worker", state.worker);
+      loadGoals();
+    });
+    document.getElementById("refresh").addEventListener("click", () => {
+      if (state.goal) loadGoal(state.goal);
+      loadGoals();
+    });
+    document.getElementById("create").addEventListener("click", createGoal);
+
+    state.worker = new URLSearchParams(location.search).get("worker")
+      || localStorage.getItem("worker")
+      || "https://factory-poc-worker.YOUR-SUBDOMAIN.workers.dev";
+    document.getElementById("worker-url").value = state.worker;
+    loadGoals();
+    setInterval(() => { if (state.goal) loadGoal(state.goal); }, 5000);
+  </script>
+</body>
+</html>

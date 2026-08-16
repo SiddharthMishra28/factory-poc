@@ -1,6 +1,7 @@
 //! Thin shell-out wrapper around `git` (no heavy git libraries).
 
 use anyhow::{anyhow, Context, Result};
+use std::path::Path;
 
 /// Run a git command, returning trimmed stdout.
 pub fn run(args: &[&str]) -> Result<String> {
@@ -34,12 +35,35 @@ pub fn has_changes() -> bool {
 /// Stage everything and commit. Returns the new short hash. The `[skip ci]`
 /// marker guarantees pushes never re-trigger this dispatch-only workflow.
 pub fn commit_all(message: &str) -> Result<String> {
+    ensure_node_modules_ignored()?;
     run(&["add", "-A"])?;
     if !has_changes() {
         return Err(anyhow!("nothing to commit"));
     }
     run(&["commit", "-m", message])?;
     Ok(short_commit())
+}
+
+/// An agent may run `npm install`, which creates `node_modules` under work/.
+/// Belt and braces: make sure the repo ignores it before staging anything,
+/// so a huge dependency tree never lands in the commit.
+fn ensure_node_modules_ignored() -> Result<()> {
+    let gi = Path::new(".gitignore");
+    let existing = if gi.exists() {
+        std::fs::read_to_string(gi)?
+    } else {
+        String::new()
+    };
+    if existing.lines().any(|l| l.trim() == "node_modules") {
+        return Ok(());
+    }
+    let mut s = existing;
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str("node_modules\n");
+    std::fs::write(gi, s)?;
+    Ok(())
 }
 
 /// Push the current branch. Errors are non-fatal (no remote in local tests).

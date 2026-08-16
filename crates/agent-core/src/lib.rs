@@ -7,6 +7,7 @@
 pub mod enricher;
 pub mod llm;
 pub mod schema;
+pub mod tools;
 
 /// Extract the first balanced JSON object out of a model response.
 /// Small models often wrap JSON in prose or markdown fences; this tolerates that.

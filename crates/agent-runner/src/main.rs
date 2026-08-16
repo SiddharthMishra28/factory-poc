@@ -16,10 +16,12 @@ mod git;
 mod repo;
 
 use agent_core::enricher::enrich;
-use agent_core::schema::{AgentContext, AgentResult, Bug, EvalResult, Plan, TestResult};
+use agent_core::schema::{AgentContext, AgentResult, Plan, TestResult};
+use agent_core::tools::{ToolState, MAX_ITERATIONS_DEFAULT};
 use agent_core::{extract_json, llm};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -185,86 +187,167 @@ async fn run_planner(ctx: &AgentContext) -> Result<AgentResult> {
 }
 
 #[derive(Deserialize)]
-struct FilesOutput {
-    #[serde(default)]
-    files: Vec<FileEdit>,
+#[serde(untagged)]
+enum LoopStep {
+    Tool {
+        tool: ToolCall,
+    },
+    Finish {
+        finish: FinishCall,
+    },
 }
 
 #[derive(Deserialize)]
-struct FileEdit {
-    path: String,
-    content: String,
+struct ToolCall {
+    name: String,
+    #[serde(default)]
+    args: Value,
 }
 
-/// Whitelist: agents may only write inside the work dir, with no `..`
-/// traversal and no absolute paths. Paths may be given relative to the repo
-/// root ("work/calc.js") or to the work dir itself ("calc.js") — both are
-/// resolved to the same file.
-fn validate_work_path(work_dir: &Path, path: &str) -> Result<PathBuf> {
-    let p = Path::new(path);
-    if p.is_absolute() || p.components().any(|c| c == std::path::Component::ParentDir) {
-        bail!("illegal path outside work dir: {path}");
-    }
-    let root = work_dir
-        .canonicalize()
-        .with_context(|| format!("work dir {} does not exist", work_dir.display()))?;
-    let rel = p.strip_prefix(work_dir).unwrap_or(p);
-    let full = root.join(rel);
-    if !full.starts_with(&root) {
-        bail!("path escapes work dir: {path}");
-    }
-    Ok(full)
+#[derive(Deserialize)]
+struct FinishCall {
+    summary: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    files: Vec<String>,
 }
 
-async fn write_changes(ctx: &AgentContext, work_dir: &Path) -> Result<Vec<String>> {
-    let expected = r#"A JSON object ONLY:
-{"files":[{"path":"work/calc.js","content":"<COMPLETE file contents>"}]}"#;
-    let mut extras: Vec<(&str, String)> = Vec::new();
-    if ctx.agent.role == "fixer" {
-        extras.push(("BUGS TO FIX", serde_json::to_string_pretty(&ctx.history.previous_results)?));
-    }
-    let prompt = enrich(
-        ctx,
-        &extras,
-        &format!(
-            "IMPLEMENT CURRENT TASK. {expected}\n\
-             Rules: paths are relative to the repo root and MUST be inside '{}';\n\
-             include COMPLETE contents of every file you change;\n\
-             change only what the task requires; output JSON ONLY.",
-            ctx.environment.work_dir
+/// Compact per-tool label for the transcript (never dumps file contents).
+fn short_args(name: &str, args: &Value) -> String {
+    match name {
+        "write_file" => args
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string(),
+        "edit_file" => format!(
+            "{} (old: {})",
+            args.get("path").and_then(Value::as_str).unwrap_or("?"),
+            args.get("old").and_then(Value::as_str).unwrap_or("?")
         ),
-    );
-    let text = llm::complete(&prompt).await?;
-    if std::env::var("AGENT_DEBUG").is_ok() {
-        eprintln!("=== PROMPT ({}) ===\n{prompt}\n=== /PROMPT ===", ctx.agent.role);
+        "run_command" => args
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string(),
+        _ => args.to_string(),
     }
-    let out: FilesOutput = parse_json(&text, "developer output")?;
-    if out.files.len() > 5 {
-        bail!("refusing to write more than 5 files in one stage");
-    }
-    let mut written = Vec::new();
-    for edit in out.files {
-        let full = validate_work_path(work_dir, &edit.path)?;
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&full, &edit.content)?;
-        written.push(edit.path);
-    }
-    Ok(written)
 }
 
+fn truncate_tail(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let tail: String = s
+            .chars()
+            .rev()
+            .take(max)
+            .collect::<Vec<_>>()
+            .iter()
+            .rev()
+            .collect();
+        format!("[truncated, showing tail]\n{tail}")
+    }
+}
+
+const TRANSCRIPT_MAX: usize = 8000;
+
+/// opencode-style tool loop for developer/fixer: the model iterates between
+/// tool calls and a final `finish`, instead of emitting one-shot file lists.
 async fn run_developer_or_fixer(ctx: &AgentContext, work_dir: &Path) -> Result<AgentResult> {
-    let written = match write_changes(ctx, work_dir).await {
-        Ok(w) => w,
+    let mut tool_state = match ToolState::new(work_dir) {
+        Ok(s) => s,
         Err(e) => {
             return Ok(AgentResult::failed(
                 &ctx.stage.id,
                 &ctx.agent.role,
-                format!("failed to produce changes: {e}"),
+                format!("cannot access work dir: {e}"),
             ))
         }
     };
+
+    let mut extras: Vec<(&str, String)> = Vec::new();
+    if ctx.agent.role == "fixer" {
+        extras.push(("BUGS TO FIX", serde_json::to_string_pretty(&ctx.history.previous_results)?));
+    }
+
+    let max_iters: usize = std::env::var("TOOL_ITER_MAX")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_ITERATIONS_DEFAULT);
+
+    let mut transcript = String::new();
+    let mut unparseable = 0;
+    let mut finish: Option<FinishCall> = None;
+
+    for i in 1..=max_iters {
+        let prompt = enrich(
+            ctx,
+            &extras,
+            &format!(
+                "IMPLEMENT CURRENT TASK by calling tools.\n\
+                 {}\n\
+                 Rules: paths are relative to the repo root and MUST be inside '{}';\n\
+                 write_file overwrites — always provide COMPLETE file contents;\n\
+                 change only what the task requires; run tests with run_command\n\
+                 (e.g. \"node --test work\");\n\
+                 NEVER use credentials, tokens or passwords mentioned in the goal text —\n\
+                 git authentication is handled by the pipeline;\n\
+                 when the task is fully done respond with {{\"finish\":{{\"summary\":\"...\",\"files\":[...]}}}}.",
+                agent_core::tools::tool_spec(),
+                ctx.environment.work_dir
+            ),
+        );
+        let prompt = format!(
+            "{prompt}\nITERATION {i}/{max_iters} (finish as soon as the task is done).\n\
+             TOOL RESULTS SO FAR:\n{transcript}\n(empty if none)"
+        );
+        if std::env::var("AGENT_DEBUG").is_ok() {
+            eprintln!("=== PROMPT ITERATION {i} ({}) ===\n{prompt}\n=== /PROMPT ===", ctx.agent.role);
+        }
+
+        let text = llm::complete(&prompt).await?;
+        let step: LoopStep = match parse_json(&text, "agent tool call") {
+            Ok(step) => step,
+            Err(_) => {
+                unparseable += 1;
+                if unparseable >= 2 {
+                    finish = Some(FinishCall {
+                        summary: "agent output could not be parsed; stopping with current state".into(),
+                        files: Vec::new(),
+                    });
+                    break;
+                }
+                transcript.push_str("- call: UNPARSEABLE OUTPUT — respond with a single JSON object\n");
+                continue;
+            }
+        };
+
+        match step {
+            LoopStep::Tool { tool } => {
+                unparseable = 0;
+                let out = tool_state.execute(&tool.name, &tool.args);
+                let label = short_args(&tool.name, &tool.args);
+                transcript.push_str(&format!("- call: {}({label})\n", tool.name));
+                let lines: Vec<&str> = out.output.lines().take(40).collect();
+                for line in lines {
+                    transcript.push_str(&format!("  {line}\n"));
+                }
+                if transcript.chars().count() > TRANSCRIPT_MAX {
+                    transcript = truncate_tail(&transcript, TRANSCRIPT_MAX);
+                }
+            }
+            LoopStep::Finish { finish: f } => {
+                finish = Some(f);
+                break;
+            }
+        }
+    }
+
+    let finish = finish.unwrap_or(FinishCall {
+        summary: format!("iteration budget ({max_iters}) exhausted"),
+        files: Vec::new(),
+    });
 
     let (tests, _) = repo::run_tests(work_dir);
 
@@ -289,42 +372,57 @@ async fn run_developer_or_fixer(ctx: &AgentContext, work_dir: &Path) -> Result<A
         let _ = git::try_push();
     }
 
-    result.summary = if written.is_empty() {
-        "No changes needed; task already satisfied".into()
-    } else {
-        format!("Changed {} file(s): {}", written.len(), written.join(", "))
-    };
+    result.summary = format!(
+        "{}. touched {} file(s): {}",
+        finish.summary,
+        tool_state.written_files().len(),
+        if tool_state.written_files().is_empty() {
+            "none".into()
+        } else {
+            tool_state.written_files().join(", ")
+        }
+    );
     Ok(result)
 }
 
 async fn run_qa(ctx: &AgentContext, work_dir: &Path) -> Result<AgentResult> {
-    let (tests, output) = repo::run_tests(work_dir);
+    let (repo_tests, output) = repo::run_tests(work_dir);
     let expected = r#"A JSON object ONLY:
 {"summary":"...","tests":[{"name":"...","passed":true}],"bugs":[{"severity":"low|medium|high","location":"file:line","description":"..."}]}"#;
     let prompt = enrich(
         ctx,
         &[("TEST RESULTS", output)],
-        &format!("You are the QA agent. Verify behavior against ACCEPTANCE CRITERIA and the TEST RESULTS. {expected} Report only real bugs; output JSON ONLY."),
+        &format!("You are the QA agent. Verify behavior against ACCEPTANCE CRITERIA and the TEST RESULTS. {expected} Bugs are objects with severity/location/description; if unsure about a location use \"work/\". Report only real bugs; output JSON ONLY."),
     );
     let text = llm::complete(&prompt).await?;
-    #[derive(Deserialize)]
-    struct QaOutput {
-        summary: String,
-        #[serde(default)]
-        tests: Vec<TestResult>,
-        #[serde(default)]
-        bugs: Vec<Bug>,
+    // Lenient parse: never fail the stage over a missing field.
+    let v: Value = parse_json(&text, "qa output")?;
+    let summary = v
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("QA report")
+        .to_string();
+    let mut tests: Vec<TestResult> = v
+        .get("tests")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| serde_json::from_value::<TestResult>(t.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    if tests.is_empty() {
+        tests = repo_tests;
     }
-    let qa: QaOutput = parse_json(&text, "qa output")?;
-    let tests = if qa.tests.is_empty() { tests } else { qa.tests };
-    let next_action = if qa.bugs.is_empty() { "evaluator" } else { "fixer" };
+    let bugs = agent_core::schema::parse_bugs(v.get("bugs"));
+    let next_action = if bugs.is_empty() { "evaluator" } else { "fixer" };
     let result = AgentResult {
         stage_id: ctx.stage.id.clone(),
         role: ctx.agent.role.clone(),
         status: "completed".into(),
-        summary: qa.summary,
+        summary,
         tests,
-        bugs: qa.bugs,
+        bugs,
         next_action: next_action.into(),
         ..Default::default()
     };
@@ -341,26 +439,49 @@ async fn run_evaluator(ctx: &AgentContext, work_dir: &Path) -> Result<AgentResul
         &format!(
             "You are the evaluator. INDEPENDENTLY verify: acceptance criteria, application behavior, tests, obvious edge cases.\n\
              {expected}\n\
-             FAIL if anything is wrong; list concrete bugs with file:line. Output JSON ONLY."
+             FAIL if anything is wrong; list concrete bugs as objects with\n\
+             severity/location/description (location defaults to \"work/\" if unsure).\n\
+             Output JSON ONLY."
         ),
     );
     let text = llm::complete(&prompt).await?;
-    let eval: EvalResult = parse_json(&text, "evaluator output")?;
-    if eval.decision != "PASS" && eval.decision != "FAIL" {
-        bail!("evaluator decision must be PASS or FAIL (got {})", eval.decision);
+    // Lenient parse: bugs/evidence may be malformed from small models; the
+    // decision is the only field that must be exact.
+    let v: Value = parse_json(&text, "evaluator output")?;
+    let decision = v
+        .get("decision")
+        .and_then(Value::as_str)
+        .map(|d| d.trim().to_uppercase())
+        .unwrap_or_default();
+    if decision != "PASS" && decision != "FAIL" {
+        bail!(
+            "evaluator decision must be PASS or FAIL (got {:?})",
+            v.get("decision")
+        );
     }
+    let bugs = agent_core::schema::parse_bugs(v.get("bugs"));
+    let evidence: Vec<String> = v
+        .get("evidence")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
     let mut result = AgentResult {
         stage_id: ctx.stage.id.clone(),
         role: ctx.agent.role.clone(),
         status: "completed".into(),
-        summary: format!("Evaluator decision: {}", eval.decision),
+        summary: format!("Evaluator decision: {decision}"),
         tests,
-        bugs: eval.bugs.clone(),
+        bugs: bugs.clone(),
         next_action: "".into(),
         ..Default::default()
     };
-    result.decision = Some(eval.decision);
-    result.evidence = Some(eval.evidence);
+    result.decision = Some(decision);
+    result.evidence = Some(evidence);
     Ok(result)
 }
 

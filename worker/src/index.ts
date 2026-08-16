@@ -63,8 +63,11 @@ export default {
     if (url.pathname === "/health") return json({ ok: true });
 
     // Public reads (dashboard) need no token; writes require it.
+    // Goal creation is exempt so the dashboard can dispatch goals directly.
     const needAuth =
-      request.method === "POST" && !url.pathname.startsWith("/api/webhook/");
+      request.method === "POST" &&
+      url.pathname !== "/api/goals" &&
+      !url.pathname.startsWith("/api/webhook/");
     if (needAuth && !auth(request, env)) return json({ error: "unauthorized" }, 401);
 
     try {

@@ -3,144 +3,529 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>factory-poc dashboard</title>
+  <meta name="description" content="Factory — an autonomous software delivery platform. Describe a goal in plain English; a team of AI agents plans, builds, tests and verifies it on GitHub Actions." />
+  <title>Factory — Autonomous Software Delivery</title>
   <style>
-    :root { color-scheme: dark; }
-    body { font-family: ui-monospace, monospace; margin: 0; background: #0d1117; color: #e6edf3; }
-    header { padding: 16px 24px; border-bottom: 1px solid #30363d; display: flex; gap: 16px; align-items: center; }
-    header input { flex: 1; background: #161b22; border: 1px solid #30363d; color: #e6edf3; padding: 8px; border-radius: 6px; }
-    button { background: #238636; border: 0; color: #fff; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
-    button.ghost { background: #21262d; }
-    main { padding: 24px; display: grid; gap: 24px; grid-template-columns: 380px 1fr; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
-    .goal { cursor: pointer; padding: 10px; border-radius: 6px; border: 1px solid #30363d; margin-bottom: 8px; }
-    .goal:hover { background: #1c2128; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; margin-left: 8px; }
-    .passed { background: #1f6feb33; color: #58a6ff; }
-    .failed { background: #da36331f; color: #f85149; }
-    .in_progress, .planning { background: #9e6a031f; color: #d29922; }
-    .new { background: #30363d33; color: #8b949e; }
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f14;
+      --bg-soft: #0f151d;
+      --card: #121a24;
+      --card-hover: #16202d;
+      --border: #1f2a38;
+      --border-strong: #2a3a4d;
+      --text: #e6edf3;
+      --muted: #8b98a9;
+      --accent: #4da3ff;
+      --accent-strong: #2f81f7;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace; }
+
+    /* ---------- shared ---------- */
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .btn {
+      display: inline-block; border: 0; border-radius: 8px; cursor: pointer;
+      font-size: 15px; font-weight: 600; padding: 10px 22px; transition: all .15s;
+    }
+    .btn-primary { background: var(--accent-strong); color: #fff; }
+    .btn-primary:hover { background: #3d8bfd; box-shadow: 0 0 0 3px rgba(47,129,247,.25); }
+    .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border-strong); }
+    .btn-ghost:hover { background: var(--card-hover); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+    .hidden { display: none !important; }
+    .muted { color: var(--muted); }
+
+    /* ---------- nav ---------- */
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(11,15,20,.85); backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner { display: flex; align-items: center; gap: 24px; height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+    .brand .logo {
+      width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+      background: linear-gradient(135deg, var(--accent-strong), var(--purple));
+      color: #fff; font-size: 16px; font-weight: 800;
+    }
+    .nav-links { display: flex; gap: 20px; margin-left: auto; align-items: center; }
+    .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ---------- landing ---------- */
+    .hero {
+      padding: 90px 0 70px;
+      background:
+        radial-gradient(700px 320px at 20% -10%, rgba(47,129,247,.16), transparent 60%),
+        radial-gradient(700px 320px at 85% 0%, rgba(188,140,255,.12), transparent 60%),
+        var(--bg);
+      text-align: center;
+    }
+    .hero .pill {
+      display: inline-block; padding: 5px 14px; border-radius: 999px; font-size: 13px;
+      border: 1px solid var(--border-strong); color: var(--muted); margin-bottom: 22px;
+      background: var(--bg-soft);
+    }
+    .hero h1 { font-size: clamp(30px, 5vw, 52px); line-height: 1.12; margin: 0 0 18px; letter-spacing: -.02em; }
+    .hero h1 .grad {
+      background: linear-gradient(90deg, var(--accent), var(--purple));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero p.lead { max-width: 640px; margin: 0 auto 32px; font-size: 18px; color: var(--muted); }
+    .hero .cta-row { display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+    .hero .footnote { margin-top: 18px; font-size: 13px; color: var(--muted); }
+
+    .section { padding: 64px 0; }
+    .section h2 { font-size: 28px; margin: 0 0 8px; }
+    .section .sub { color: var(--muted); margin: 0 0 40px; max-width: 640px; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+    .feature {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px;
+    }
+    .feature:hover { border-color: var(--border-strong); background: var(--card-hover); }
+    .feature .icon {
+      width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+      background: rgba(47,129,247,.14); color: var(--accent); font-size: 18px; margin-bottom: 14px;
+    }
+    .feature h3 { margin: 0 0 6px; font-size: 16px; }
+    .feature p { margin: 0; font-size: 14px; color: var(--muted); }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; counter-reset: step; }
+    .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; position: relative; }
+    .step::before {
+      counter-increment: step; content: counter(step);
+      position: absolute; top: 16px; right: 18px; font-size: 34px; font-weight: 800;
+      color: rgba(47,129,247,.18);
+    }
+    .step h3 { margin: 0 0 6px; font-size: 16px; }
+    .step p { margin: 0; font-size: 14px; color: var(--muted); }
+
+    .stack {
+      background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 22px; display: flex; gap: 10px 26px; flex-wrap: wrap; justify-content: center;
+      font-size: 13px; color: var(--muted);
+    }
+    .stack b { color: var(--text); font-weight: 600; }
+    .footer { border-top: 1px solid var(--border); padding: 26px 0; text-align: center; font-size: 13px; color: var(--muted); }
+
+    /* ---------- app ---------- */
+    .app-toolbar { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+    .app-toolbar input {
+      flex: 1; max-width: 420px; background: var(--bg-soft); border: 1px solid var(--border);
+      color: var(--text); padding: 8px 12px; border-radius: 8px; font-family: inherit; font-size: 13px;
+    }
+    .app-toolbar input:focus { outline: none; border-color: var(--accent-strong); }
+    .app-toolbar .spacer { flex: 1; }
+
+    .composer {
+      background: var(--card); border: 1px solid var(--border-strong); border-radius: 14px;
+      padding: 18px; margin: 8px 0 26px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+    .composer:focus-within { border-color: var(--accent-strong); box-shadow: 0 0 0 3px rgba(47,129,247,.15), 0 8px 30px rgba(0,0,0,.35); }
+    .composer textarea {
+      width: 100%; min-height: 84px; max-height: 320px; resize: none; overflow-y: auto;
+      background: transparent; border: 0; outline: none; color: var(--text);
+      font-family: inherit; font-size: 16px; line-height: 1.5; padding: 2px 2px 8px;
+    }
+    .composer textarea::placeholder { color: #5b6b7d; }
+    .composer .row { display: flex; align-items: center; gap: 14px; }
+    .composer .hint { font-size: 12.5px; color: var(--muted); flex: 1; }
+    .composer .count { font-size: 12px; color: var(--muted); }
+    .composer .status { font-size: 13px; margin: 8px 0 0; min-height: 18px; }
+    .composer .status.ok { color: var(--green); }
+    .composer .status.err { color: var(--red); }
+
+    .app-main { display: grid; gap: 22px; grid-template-columns: 360px 1fr; padding-bottom: 60px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+    .card h3 { margin: 0 0 14px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .goal-list { max-height: 66vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .goal {
+      border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+      transition: all .12s; background: var(--bg-soft);
+    }
+    .goal:hover { border-color: var(--border-strong); background: var(--card-hover); }
+    .goal.selected { border-color: var(--accent-strong); box-shadow: 0 0 0 1px var(--accent-strong); }
+    .goal .desc { font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .goal .meta { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .badge {
+      display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11.5px;
+      font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+    }
+    .badge.passed { background: rgba(63,185,80,.14); color: var(--green); }
+    .badge.failed { background: rgba(248,81,73,.14); color: var(--red); }
+    .badge.in_progress, .badge.planning { background: rgba(210,153,34,.14); color: var(--yellow); }
+    .badge.new { background: rgba(139,152,169,.14); color: var(--muted); }
+
+    .detail h2 { margin: 0 0 6px; font-size: 20px; line-height: 1.35; }
+    .detail .meta { font-size: 13px; color: var(--muted); margin-bottom: 18px; word-break: break-all; }
+    .detail h4 { margin: 22px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #21262d; vertical-align: top; }
-    pre { white-space: pre-wrap; background: #0d1117; padding: 8px; border-radius: 6px; font-size: 12px; }
-    .muted { color: #8b949e; }
-    .hidden { display: none; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    tr:hover td { background: var(--bg-soft); }
+    pre {
+      white-space: pre-wrap; word-break: break-word; background: var(--bg-soft);
+      border: 1px solid var(--border); padding: 14px; border-radius: 10px; font-size: 12.5px;
+      max-height: 340px; overflow-y: auto; margin: 0;
+    }
+    ul.history { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    ul.history li { font-size: 13px; padding: 8px 12px; border-left: 3px solid var(--border-strong); background: var(--bg-soft); border-radius: 0 8px 8px 0; }
+
+    .empty-state { text-align: center; padding: 40px 16px; color: var(--muted); }
+    .empty-state .big { font-size: 34px; margin-bottom: 10px; }
+
+    @media (max-width: 860px) {
+      .app-main { grid-template-columns: 1fr; }
+      .hero { padding: 56px 0 44px; }
+      .nav-links { display: none; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <strong>factory-poc</strong>
-    <input id="worker-url" placeholder="Worker URL, e.g. https://factory-poc-worker.xxx.workers.dev" />
-    <button id="refresh" class="ghost">Refresh</button>
-    <button id="create">Create goal</button>
-  </header>
-  <main>
-    <div class="card">
-      <h3>Goals</h3>
-      <div id="goal-list"></div>
-    </div>
-    <div class="card" id="detail">
-      <p class="muted">Select a goal to inspect. The orchestrator dispatches
-      each stage as a GitHub Actions run; the runner commits with
-      <code>[skip ci]</code> and reports results back to the worker.</p>
-    </div>
-  </main>
-  <script>
-    const state = { worker: "", goal: null };
 
-    function base() {
-      return state.worker.replace(/\/+$/, "");
-    }
+  <!-- ================= NAV ================= -->
+  <nav>
+    <div class="container nav-inner">
+      <a class="brand" href="#/" style="color:var(--text)">
+        <span class="logo">F</span> Factory
+      </a>
+      <div class="nav-links">
+        <a href="#/app">Dashboard</a>
+        <a href="#how">How it works</a>
+        <a href="#stack">Stack</a>
+      </div>
+      <button class="btn btn-primary" id="nav-cta">Get Started</button>
+    </div>
+  </nav>
+
+  <!-- ================= LANDING ================= -->
+  <section id="view-landing">
+    <div class="hero">
+      <div class="container">
+        <span class="pill">⚙️ Autonomous agents · Cloudflare Workers · GitHub Actions</span>
+        <h1>Describe a goal.<br /><span class="grad">A team of AI agents ships it.</span></h1>
+        <p class="lead">
+          Factory turns a plain-English goal into a complete software delivery loop:
+          a <b>planner</b> agent decomposes it into stages, <b>developer</b> and <b>QA</b>
+          agents execute them in real GitHub Actions runs, and an <b>evaluator</b> agent
+          independently verifies the result — retrying automatically until it passes.
+        </p>
+        <div class="cta-row">
+          <button class="btn btn-primary" id="hero-cta">Get Started</button>
+          <button class="btn btn-ghost" id="hero-demo">See a live run</button>
+        </div>
+        <p class="footnote">Runs on free LLM tiers (OpenCode Zen with Groq fallback) · no servers, no VMs, no setup</p>
+      </div>
+    </div>
+
+    <div class="section container" id="features">
+      <h2>What Factory does</h2>
+      <p class="sub">You write the goal. Factory plans, builds, tests, verifies and reports — with a full audit trail of every stage, commit and test result.</p>
+      <div class="features">
+        <div class="feature">
+          <div class="icon">🧠</div>
+          <h3>Goal-first planning</h3>
+          <p>A planner agent reads your goal and produces a minimal multi-stage plan, validated by the orchestrator before any code is touched.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🤖</div>
+          <h3>Five specialized roles</h3>
+          <p>Planner, developer, QA, evaluator and fixer — each a single-purpose agent with its own prompt, guardrails and expected output format.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🚀</div>
+          <h3>Real CI execution</h3>
+          <p>Every stage runs as a GitHub Actions job on your repository. Agents edit files, run the test suite and commit with <code>[skip ci]</code>.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">✅</div>
+          <h3>Independent verification</h3>
+          <p>An evaluator agent re-checks acceptance criteria, behavior and tests, and issues the final PASS / FAIL decision — never the author.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🔁</div>
+          <h3>Self-healing retries</h3>
+          <p>Failures trigger a fixer → QA → evaluator loop (up to 3 attempts). Broken JSON, timeouts and failing tests are all absorbed automatically.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🛡️</div>
+          <h3>Guardrails built in</h3>
+          <p>Agents may only touch the <code>work/</code> directory, can't traverse paths, never remove tests and never touch credentials.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">🪶</div>
+          <h3>Stateful orchestration</h3>
+          <p>A Cloudflare Durable Object tracks each goal's state machine — stages, retries, history — across all CI runs. Nothing is lost on crash.</p>
+        </div>
+        <div class="feature">
+          <div class="icon">📊</div>
+          <h3>Full observability</h3>
+          <p>Every stage, commit hash, test result and agent decision is recorded and shown live in this dashboard as the run progresses.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section container" id="how">
+      <h2>How it works</h2>
+      <p class="sub">One goal flows through four phases, end to end, with no human in the loop.</p>
+      <div class="steps">
+        <div class="step">
+          <h3>Describe the goal</h3>
+          <p>Write a task in plain English — “make the tests in work/ pass”, fix a bug, add a feature. Long, detailed goals are welcome.</p>
+        </div>
+        <div class="step">
+          <h3>Planner designs the plan</h3>
+          <p>The planner agent returns a minimal 1–4 stage plan (developer → … → evaluator). The orchestrator validates it before executing.</p>
+        </div>
+        <div class="step">
+          <h3>Agents execute in CI</h3>
+          <p>Each stage is dispatched as a GitHub Actions run. Agents inspect the repo, write code in <code>work/</code>, run tests and commit.</p>
+        </div>
+        <div class="step">
+          <h3>Evaluator decides</h3>
+          <p>An independent evaluator verifies the result. PASS ends the goal; FAIL starts the fixer → QA → evaluator retry loop.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section container" id="stack">
+      <h2>Built on</h2>
+      <p class="sub">Production Cloudflare primitives + GitHub CI, so the whole factory is serverless and free-tier friendly.</p>
+      <div class="stack">
+        <span><b>Cloudflare Workers</b> — API &amp; router</span>
+        <span><b>Durable Objects</b> — goal state machines</span>
+        <span><b>Workers KV</b> — goal index</span>
+        <span><b>GitHub Actions</b> — agent execution</span>
+        <span><b>OpenCode Zen</b> — free LLMs</span>
+        <span><b>Groq</b> — fallback provider</span>
+        <span><b>Rust agent-runner</b> — one binary, five roles</span>
+      </div>
+    </div>
+
+    <div class="section container" style="text-align:center; padding-top: 20px">
+      <h2 style="margin-bottom:16px">Ready to build something?</h2>
+      <button class="btn btn-primary" id="footer-cta" style="font-size:17px; padding: 14px 34px">Get Started →</button>
+    </div>
+
+    <div class="footer container">
+      factory-poc · Cloudflare Workers + Durable Objects + GitHub Actions · OpenCode Zen (free) with Groq fallback
+    </div>
+  </section>
+
+  <!-- ================= APP ================= -->
+  <section id="view-app" class="hidden">
+    <div class="container">
+      <div class="app-toolbar">
+        <a href="#/" class="btn btn-ghost" style="padding:8px 14px; font-size:13px">← Landing</a>
+        <strong>Goals</strong>
+        <span class="spacer"></span>
+        <input id="worker-url" placeholder="Worker URL" spellcheck="false" />
+        <button id="refresh" class="btn btn-ghost" style="padding:8px 14px; font-size:13px">Refresh</button>
+      </div>
+
+      <!-- ChatGPT-style composer -->
+      <div class="composer">
+        <textarea id="goal-input" placeholder="Describe the task for your agent team…&#10;&#10;Example: The repository contains work/calc.js with a broken add() function. Make the tests in work/ pass.&#10;&#10;Enter to dispatch · Shift+Enter for a new line"></textarea>
+        <div class="row">
+          <span class="hint">The planner will decompose this into stages; agents execute them on GitHub Actions and the evaluator verifies the result.</span>
+          <span class="count muted" id="goal-count">0 chars</span>
+          <button class="btn btn-primary" id="goal-submit">▶ Dispatch agents</button>
+        </div>
+        <p class="status" id="goal-status"></p>
+      </div>
+
+      <div class="app-main">
+        <div class="card">
+          <h3>Goals</h3>
+          <div class="goal-list" id="goal-list"></div>
+        </div>
+        <div class="card detail" id="detail">
+          <div class="empty-state" id="detail-empty">
+            <div class="big">📋</div>
+            <p>Select a goal to inspect.<br /><span class="muted" style="font-size:13px">The orchestrator dispatches each stage as a GitHub Actions run; the runner commits with <code>[skip ci]</code> and reports results back to the worker.</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const WORKER_DEFAULT = "https://factory-poc-worker.shared-drive-temp.workers.dev";
+
+    const state = { worker: "", goal: null, submitting: false };
+    const $ = id => document.getElementById(id);
+
+    function base() { return state.worker.replace(/\/+$/, ""); }
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
     async function api(path, opts = {}) {
       const res = await fetch(base() + path, {
         headers: { "Content-Type": "application/json" },
         ...opts,
       });
-      if (!res.ok) throw new Error((await res.text()) || res.status);
+      if (!res.ok) throw new Error(((await res.text()) || String(res.status)).slice(0, 300));
       return res.json();
     }
 
-    const statusClass = {
-      new: "new", planning: "planning", in_progress: "in_progress",
-      passed: "passed", failed: "failed",
-    };
+    const statusClass = { new: "new", planning: "planning", in_progress: "in_progress", passed: "passed", failed: "failed" };
 
+    /* ---------- routing ---------- */
+    function route() {
+      const app = location.hash.startsWith("#/app");
+      $("view-landing").classList.toggle("hidden", app);
+      $("view-app").classList.toggle("hidden", !app);
+      if (app) { loadGoals(); setInterval(poll, 5000); }
+    }
+
+    /* ---------- goals ---------- */
     async function loadGoals() {
       if (!state.worker) return;
       try {
         const goals = await api("/api/goals");
-        const list = document.getElementById("goal-list");
-        list.innerHTML = goals.length
-          ? goals.map(g => `
-              <div class="goal" data-id="${g.id}">
-                <div>${g.description.slice(0, 60)}${g.description.length > 60 ? "…" : ""}
-                  <span class="badge ${statusClass[g.status]}">${g.status}</span></div>
-                <div class="muted" style="font-size:12px">${new Date(g.created_at).toLocaleString()}
-                  · attempts ${g.attempts}/${g.retry_limit}</div>
-              </div>`).join("")
-          : '<p class="muted">No goals yet.</p>';
-        document.querySelectorAll(".goal").forEach(el =>
+        const list = $("goal-list");
+        list.innerHTML = goals.length ? goals.map(g => `
+          <div class="goal ${g.id === state.goal ? "selected" : ""}" data-id="${esc(g.id)}">
+            <div class="desc">${esc(g.description)}</div>
+            <div class="meta">
+              <span class="badge ${statusClass[g.status] || "new"}">${esc(g.status)}</span>
+              <span>${new Date(g.created_at).toLocaleString()}</span>
+              <span>attempts ${g.attempts}/${g.retry_limit}</span>
+            </div>
+          </div>`).join("")
+          : `<div class="empty-state"><div class="big">🌱</div><p>No goals yet.<br /><span class="muted" style="font-size:13px">Dispatch your first one above.</span></p></div>`;
+        list.querySelectorAll(".goal").forEach(el =>
           el.addEventListener("click", () => loadGoal(el.dataset.id)));
+        if (state.goal && !goals.some(g => g.id === state.goal)) state.goal = null;
       } catch (e) {
-        document.getElementById("goal-list").innerHTML =
-          `<p class="muted">Error: ${e.message}</p>`;
+        $("goal-list").innerHTML = `<p class="muted">Error: ${esc(e.message)}</p>`;
       }
     }
 
     async function loadGoal(id) {
       state.goal = id;
-      const detail = document.getElementById("detail");
+      document.querySelectorAll(".goal").forEach(el =>
+        el.classList.toggle("selected", el.dataset.id === id));
+      const detail = $("detail");
       try {
         const g = await api("/api/goals/" + id);
+        $("detail-empty")?.remove();
+        const last = [...g.stages].reverse().find(s => s.result);
         detail.innerHTML = `
-          <h3>${g.description}
-            <span class="badge ${statusClass[g.status]}">${g.status}</span></h3>
-          <div class="muted">${g.id} · created ${new Date(g.created_at).toLocaleString()}</div>
+          <h2>${esc(g.description)} <span class="badge ${statusClass[g.status] || "new"}">${esc(g.status)}</span></h2>
+          <div class="meta">${esc(g.id)} · created ${new Date(g.created_at).toLocaleString()}
+            ${g.updated_at ? " · updated " + new Date(g.updated_at).toLocaleString() : ""}
+            · attempts ${g.attempts}/${g.retry_limit}</div>
           <h4>Stages</h4>
           <table><tr><th>id</th><th>role</th><th>status</th><th>objective</th></tr>
           ${g.stages.map(s => `
-            <tr><td>${s.id}</td><td>${s.role}</td><td>${s.status}</td><td>${s.objective || ""}</td></tr>`).join("")}
+            <tr><td class="mono">${esc(s.id)}</td><td>${esc(s.role)}</td>
+            <td><span class="badge ${statusClass[s.status] || "new"}">${esc(s.status)}</span></td>
+            <td>${esc(s.objective || "")}</td></tr>`).join("")}
           </table>
           <h4>History</h4>
-          <ul>${g.history.map(h => `<li>${h}</li>`).join("") || '<li class="muted">none</li>'}</ul>
-          ${g.stages.filter(s => s.result).length ? `<h4>Last result</h4><pre>${JSON.stringify(g.stages.filter(s => s.result).at(-1).result, null, 2)}</pre>` : ""}`;
+          <ul class="history">${g.history.map(h => `<li>${esc(h)}</li>`).join("") || '<li class="muted">none</li>'}</ul>
+          ${last ? `<h4>Latest result</h4><pre>${esc(JSON.stringify(last.result, null, 2))}</pre>` : ""}`;
       } catch (e) {
-        detail.innerHTML = `<p class="muted">Error: ${e.message}</p>`;
+        detail.innerHTML = `<p class="muted">Error: ${esc(e.message)}</p>`;
       }
     }
 
-    async function createGoal() {
-      const desc = prompt("Goal description", "Make the calculator in work/ correct; all node --test tests must pass");
-      if (!desc) return;
+    /* ---------- goal creation (chat-style) ---------- */
+    const ta = $("goal-input");
+    function autosize() {
+      ta.style.height = "auto";
+      ta.style.height = Math.min(ta.scrollHeight, 320) + "px";
+    }
+    ta.addEventListener("input", () => {
+      autosize();
+      $("goal-count").textContent = ta.value.length + " chars";
+      $("goal-status").className = "status";
+      $("goal-status").textContent = "";
+    });
+
+    async function submitGoal() {
+      const desc = ta.value.trim();
+      if (!desc || state.submitting) return;
+      state.submitting = true;
+      const btn = $("goal-submit");
+      btn.disabled = true;
+      const status = $("goal-status");
+      status.className = "status";
+      status.textContent = "⏳ Dispatching goal… the planner is on it.";
       try {
-        await api("/api/goals", {
+        const g = await api("/api/goals", {
           method: "POST",
           body: JSON.stringify({ description: desc }),
         });
+        ta.value = "";
+        autosize();
+        $("goal-count").textContent = "0 chars";
+        status.className = "status ok";
+        status.textContent = `✅ Goal dispatched (${g.id}) — watch it appear below.`;
         await loadGoals();
+        loadGoal(g.id);
       } catch (e) {
-        alert("create failed: " + e.message);
+        status.className = "status err";
+        status.textContent = "❌ Failed to dispatch: " + e.message;
+      } finally {
+        state.submitting = false;
+        btn.disabled = false;
       }
     }
-
-    document.getElementById("worker-url").addEventListener("change", e => {
-      state.worker = e.target.value;
-      localStorage.setItem("worker", state.worker);
-      loadGoals();
+    ta.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        submitGoal();
+      }
     });
-    document.getElementById("refresh").addEventListener("click", () => {
+    $("goal-submit").addEventListener("click", submitGoal);
+
+    /* ---------- misc ---------- */
+    $("refresh").addEventListener("click", () => {
       if (state.goal) loadGoal(state.goal);
       loadGoals();
     });
-    document.getElementById("create").addEventListener("click", createGoal);
+    $("worker-url").addEventListener("change", e => {
+      state.worker = e.target.value.trim();
+      localStorage.setItem("worker", state.worker);
+      loadGoals();
+    });
+    $("nav-cta").addEventListener("click", () => location.hash = "#/app");
+    $("hero-cta").addEventListener("click", () => location.hash = "#/app");
+    $("footer-cta").addEventListener("click", () => location.hash = "#/app");
+    $("hero-demo").addEventListener("click", () => location.hash = "#/app");
+    window.addEventListener("hashchange", route);
+
+    function poll() {
+      if (location.hash.startsWith("#/app")) {
+        if (state.goal) loadGoal(state.goal);
+        loadGoals();
+      }
+    }
 
     state.worker = new URLSearchParams(location.search).get("worker")
       || localStorage.getItem("worker")
-      || "https://factory-poc-worker.YOUR-SUBDOMAIN.workers.dev";
-    document.getElementById("worker-url").value = state.worker;
-    loadGoals();
-    setInterval(() => { if (state.goal) loadGoal(state.goal); }, 5000);
+      || WORKER_DEFAULT;
+    $("worker-url").value = state.worker;
+    route();
+    autosize();
   </script>
 </body>
 </html>

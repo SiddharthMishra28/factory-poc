@@ -114,18 +114,20 @@ fn mock_plan() -> &'static str {
     ]}"#
 }
 
-fn mock_developer_files(prompt: &str) -> String {
-    if prompt.to_lowercase().contains("bugs to fix") {
-        if mock_seeded_bug_present() {
-            // The fixer repairs the seeded defect.
-            r#"{"files":[{"path":"work/calc.js","content":"\"use strict\";\n\nfunction add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"}]}"#.to_string()
-        } else {
-            r#"{"files":[]}"#.to_string()
-        }
+/// Mock for the tool-loop protocol: first response is a tool call, and once
+/// tool results are in the transcript the agent finishes. The fixer repairs
+/// the seeded defect; the developer inspects and then finishes without
+/// changing anything, so the demo exercises the full bug-loop.
+fn mock_tool_loop(prompt: &str) -> String {
+    let lower = prompt.to_lowercase();
+    let has_results = lower.contains("- call:");
+    let is_fixer = lower.contains("bugs to fix");
+    if has_results {
+        r#"{"finish":{"summary":"task complete","files":[]}}"#.to_string()
+    } else if is_fixer {
+        r#"{"tool":{"name":"write_file","args":{"path":"work/calc.js","content":"\"use strict\";\n\nfunction add(a, b) {\n  return a + b;\n}\n\nfunction multiply(a, b) {\n  return a * b;\n}\n\nmodule.exports = { add, multiply };\n"}}}"#.to_string()
     } else {
-        // The developer misses the defect so the demo exercises the full
-        // bug-loop: qa reports it, evaluator FAILs, the fixer repairs it.
-        r#"{"files":[]}"#.to_string()
+        r#"{"tool":{"name":"list_dir","args":{"path":"work"}}}"#.to_string()
     }
 }
 
@@ -153,8 +155,11 @@ fn mock_complete(prompt: &str) -> String {
         mock_eval().to_string()
     } else if lower.contains("quality assurance") || lower.contains("qa agent") {
         mock_qa_report().to_string()
+    } else if lower.contains("call exactly one") {
+        mock_tool_loop(prompt)
     } else if lower.contains("implement") && lower.contains("json only") {
-        mock_developer_files(prompt)
+        // legacy one-shot developer prompt (kept for safety)
+        r#"{"files":[]}"#.to_string()
     } else {
         r#"{"status":"completed","summary":"mock fallback","next_action":""}"#.to_string()
     }

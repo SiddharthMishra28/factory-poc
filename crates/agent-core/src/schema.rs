@@ -63,9 +63,32 @@ pub struct AgentContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Bug {
+    #[serde(default)]
     pub severity: String,
+    #[serde(default)]
     pub location: String,
+    #[serde(default)]
     pub description: String,
+}
+
+/// Leniently parse a `bugs` field. Small models frequently emit bugs as
+/// plain strings or drop required fields; this normalizes those into
+/// well-formed `Bug`s instead of failing the whole stage.
+pub fn parse_bugs(v: Option<&serde_json::Value>) -> Vec<Bug> {
+    let Some(serde_json::Value::Array(items)) = v else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|i| match i {
+            serde_json::Value::String(s) => Some(Bug {
+                severity: "unknown".into(),
+                location: "work/".into(),
+                description: s.clone(),
+            }),
+            other => serde_json::from_value(other.clone()).ok(),
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

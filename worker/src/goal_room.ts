@@ -129,17 +129,21 @@ export class GoalRoom {
     acceptance_criteria: string[],
     insertAt?: number
   ) {
-    const stage: StageRecord = {
-      id,
-      role,
-      objective,
-      acceptance_criteria,
-      status: "queued",
-    };
-    if (insertAt !== undefined) {
-      this.goal.stages.splice(insertAt, 0, stage);
-    } else {
-      this.goal.stages.push(stage);
+    // Only create a new record when the stage isn't already present:
+    // runCurrent() dispatches a stage that already exists at `cursor`.
+    if (!this.stageById(id)) {
+      const stage: StageRecord = {
+        id,
+        role,
+        objective,
+        acceptance_criteria,
+        status: "queued",
+      };
+      if (insertAt !== undefined) {
+        this.goal.stages.splice(insertAt, 0, stage);
+      } else {
+        this.goal.stages.push(stage);
+      }
     }
     this.goal.status = "in_progress";
     await this.persist();

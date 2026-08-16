@@ -2,6 +2,8 @@
 
 import { GoalRoom, Env } from "./goal_room";
 
+export { GoalRoom };
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -27,13 +29,14 @@ function room(env: Env, id: string): DurableObjectStub {
 }
 
 async function listGoals(env: Env): Promise<any[]> {
-  const ns = env.GOAL_ROOM as any;
-  const ids = await ns.list();
+  const raw = await env.GOAL_INDEX.get("goals");
+  const ids: string[] = raw ? JSON.parse(raw) : [];
   const goals = await Promise.all(
-    ids.keys.map(async (k: any) => {
+    ids.map(async (id) => {
       try {
-        const stub = room(env, k.name);
+        const stub = room(env, id);
         const r = await stub.fetch("http://internal/get");
+        if (r.status === 404) return null;
         return await r.json();
       } catch {
         return null;
@@ -41,6 +44,13 @@ async function listGoals(env: Env): Promise<any[]> {
     })
   );
   return goals.filter(Boolean).sort((a: any, b: any) => (b.created_at < a.created_at ? -1 : 1));
+}
+
+async function indexGoal(env: Env, id: string) {
+  const raw = await env.GOAL_INDEX.get("goals");
+  const ids: string[] = raw ? JSON.parse(raw) : [];
+  if (!ids.includes(id)) ids.push(id);
+  await env.GOAL_INDEX.put("goals", JSON.stringify(ids));
 }
 
 export default {
@@ -69,6 +79,7 @@ export default {
           body: JSON.stringify({ description: body.description }),
         });
         if (!init.ok) return json({ error: "init failed", detail: await init.text() }, 500);
+        await indexGoal(env, id);
         return json(await init.json(), 201);
       }
 

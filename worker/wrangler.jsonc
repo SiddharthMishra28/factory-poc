@@ -8,6 +8,9 @@
       { "name": "GOAL_ROOM", "class_name": "GoalRoom" }
     ]
   },
+  "kv_namespaces": [
+    { "binding": "GOAL_INDEX", "id": "91ed52c9b1b44afe98fd63f17e1baaca" }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["GoalRoom"] }
   ],

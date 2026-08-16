@@ -4,4 +4,7 @@ context.json
 .env
 node_modules
 .wrangler
-dist
+distopencode.json
+
+
+opencode.json

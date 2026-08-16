@@ -13,6 +13,7 @@ export interface Env {
   LLM_PROVIDER?: string;
   RETRY_LIMIT?: string;
   GOAL_ROOM: DurableObjectNamespace;
+  GOAL_INDEX: KVNamespace;
 }
 
 export interface StageRecord {
@@ -151,6 +152,7 @@ export class GoalRoom {
         headers: {
           Authorization: `Bearer ${this.env.GITHUB_TOKEN}`,
           "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "factory-poc-worker",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

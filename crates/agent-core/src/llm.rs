@@ -14,7 +14,9 @@ use rig::providers::openai;
 
 pub const ZEN_BASE_URL: &str = "https://opencode.ai/zen/v1";
 pub const GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
-pub const DEFAULT_ZEN_MODEL: &str = "opencode/deepseek-v4-flash-free";
+// Zen model ids are unprefixed (the `opencode/` prefix is only for opencode
+// config; the gateway rejects it with ModelError).
+pub const DEFAULT_ZEN_MODEL: &str = "deepseek-v4-flash-free";
 pub const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
 
 pub fn provider() -> String {
@@ -49,6 +51,26 @@ async fn groq(prompt: &str) -> anyhow::Result<String> {
 }
 
 async fn call(api_key: &str, base_url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
+    // Free tiers are burst-limited: retry 429/5xx with backoff so a single
+    // stage can absorb a transient throttle instead of failing the goal.
+    let attempts = [5u64, 15, 30];
+    let mut last_err: Option<anyhow::Error> = None;
+    for (i, wait) in attempts.iter().enumerate() {
+        match call_once(api_key, base_url, model, prompt).await {
+            Ok(text) => return Ok(text),
+            Err(e) => {
+                last_err = Some(e);
+                if i < attempts.len() - 1 {
+                    eprintln!("LLM call failed, retrying in {wait}s: {last_err:?}");
+                    tokio::time::sleep(std::time::Duration::from_secs(*wait)).await;
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("LLM call failed")))
+}
+
+async fn call_once(api_key: &str, base_url: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
     let client = openai::Client::from_url(api_key, base_url);
     let agent = client
         .agent(model)

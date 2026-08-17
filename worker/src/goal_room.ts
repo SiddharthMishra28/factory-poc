@@ -10,6 +10,7 @@ export interface Env {
   GITHUB_BRANCH?: string;
   AGENT_TOKEN: string;
   WEBHOOK_SECRET?: string;
+  GOAL_APPROVAL_TOKEN?: string;
   LLM_PROVIDER?: string;
   RETRY_LIMIT?: string;
   GOAL_ROOM: DurableObjectNamespace;
@@ -28,7 +29,7 @@ export interface StageRecord {
 export interface GoalState {
   id: string;
   description: string;
-  status: "new" | "planning" | "in_progress" | "passed" | "failed";
+  status: "new" | "planning" | "in_progress" | "awaiting_acceptance" | "accepted" | "failed";
   stages: StageRecord[];
   cursor: number;
   history: string[];
@@ -81,6 +82,8 @@ export class GoalRoom {
         const result = await request.json();
         return Response.json(await this.applyResult(stage, result));
       }
+      case "/accept":
+        return Response.json(await this.accept());
       default:
         return new Response("not found", { status: 404 });
     }
@@ -131,8 +134,9 @@ export class GoalRoom {
   ) {
     // Only create a new record when the stage isn't already present:
     // runCurrent() dispatches a stage that already exists at `cursor`.
-    if (!this.stageById(id)) {
-      const stage: StageRecord = {
+    let stage = this.stageById(id);
+    if (!stage) {
+      stage = {
         id,
         role,
         objective,
@@ -204,7 +208,8 @@ export class GoalRoom {
       }
       case "evaluator": {
         if (result.decision === "PASS") {
-          this.goal.status = "passed";
+          this.goal.status = "awaiting_acceptance";
+          this.goal.history.unshift("evaluator passed: awaiting user acceptance");
           await this.persist();
           break;
         }
@@ -252,6 +257,17 @@ export class GoalRoom {
   private async fail(reason: string): Promise<GoalState> {
     this.goal.status = "failed";
     this.goal.history.unshift(`goal failed: ${reason}`);
+    await this.persist();
+    return this.goal;
+  }
+
+  private async accept(): Promise<GoalState> {
+    if (!this.goal) throw new Error("goal not found");
+    if (this.goal.status !== "awaiting_acceptance") {
+      throw new Error(`goal cannot be accepted while status is ${this.goal.status}`);
+    }
+    this.goal.status = "accepted";
+    this.goal.history.unshift("goal accepted by user");
     await this.persist();
     return this.goal;
   }

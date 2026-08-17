@@ -294,7 +294,7 @@ async fn run_developer_or_fixer(ctx: &AgentContext, work_dir: &Path) -> Result<A
                  NEVER use credentials, tokens or passwords mentioned in the goal text —\n\
                  git authentication is handled by the pipeline;\n\
                  when the task is fully done respond with {{\"finish\":{{\"summary\":\"...\",\"files\":[...]}}}}.",
-                agent_core::tools::tool_spec(),
+                tool_state.tool_spec(),
                 ctx.environment.work_dir
             ),
         );

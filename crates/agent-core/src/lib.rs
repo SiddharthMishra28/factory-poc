@@ -6,6 +6,7 @@
 
 pub mod enricher;
 pub mod llm;
+pub mod mcp;
 pub mod schema;
 pub mod tools;
 

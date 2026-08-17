@@ -7,7 +7,7 @@ export { GoalRoom };
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, x-agent-token, x-webhook-secret",
+  "Access-Control-Allow-Headers": "Content-Type, x-agent-token, x-webhook-secret, x-goal-approval-token",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -21,6 +21,11 @@ function json(body: unknown, status = 200): Response {
 function auth(request: Request, env: Env): boolean {
   const token = request.headers.get("x-agent-token");
   return !!env.AGENT_TOKEN && token === env.AGENT_TOKEN;
+}
+
+function approvalAuth(request: Request, env: Env): boolean {
+  const token = request.headers.get("x-goal-approval-token");
+  return !!env.GOAL_APPROVAL_TOKEN && token === env.GOAL_APPROVAL_TOKEN;
 }
 
 function room(env: Env, id: string): DurableObjectStub {
@@ -64,10 +69,17 @@ export default {
 
     // Public reads (dashboard) need no token; writes require it.
     // Goal creation is exempt so the dashboard can dispatch goals directly.
+    const isAcceptance =
+      request.method === "POST" &&
+      parts[0] === "api" &&
+      parts[1] === "goals" &&
+      !!parts[2] &&
+      parts[3] === "accept";
     const needAuth =
       request.method === "POST" &&
       url.pathname !== "/api/goals" &&
-      !url.pathname.startsWith("/api/webhook/");
+      !url.pathname.startsWith("/api/webhook/") &&
+      !isAcceptance;
     if (needAuth && !auth(request, env)) return json({ error: "unauthorized" }, 401);
 
     try {
@@ -95,6 +107,15 @@ export default {
       if (request.method === "GET" && parts[0] === "api" && parts[1] === "goals" && parts[2]) {
         const stub = room(env, parts[2]);
         return json(await stub.fetch("http://internal/get").then((r) => r.json()));
+      }
+
+      // --- POST /api/goals/:id/accept ---
+      if (isAcceptance) {
+        if (!approvalAuth(request, env)) return json({ error: "unauthorized" }, 401);
+        const stub = room(env, parts[2]);
+        const r = await stub.fetch("http://internal/accept", { method: "POST" });
+        if (!r.ok) return json({ error: await r.text() }, r.status);
+        return json(await r.json());
       }
 
       // --- GET /api/context/:goal/:stage ---

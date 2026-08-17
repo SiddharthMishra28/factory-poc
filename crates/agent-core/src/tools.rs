@@ -5,6 +5,7 @@
 //! `finish`. Tools are confined to the work directory; shell commands run
 //! with a scrubbed environment (no tokens/secrets) and redacted output.
 
+use crate::mcp::McpRegistry;
 use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
 use serde_json::Value;
@@ -33,6 +34,7 @@ pub struct ToolState {
     work_root: PathBuf,
     written: Vec<String>,
     written_bytes: u64,
+    mcp: McpRegistry,
 }
 
 /// Short human-readable description of every tool, embedded in the prompt.
@@ -46,6 +48,8 @@ pub fn tool_spec() -> &'static str {
 - {"tool":{"name":"grep","args":{"pattern":"...","path":"work/x"}}}  search file contents (regex)
 - {"tool":{"name":"run_command","args":{"command":"node --test work","cwd":"work"}}}  run a shell command (npm install, node --test, git status); secrets are NOT available
 - {"tool":{"name":"git_status","args":{}}}                  git status --porcelain
+- {"tool":{"name":"mcp_list_tools","args":{"server":"name"}}}  list a configured MCP server's tools
+- {"tool":{"name":"mcp_call","args":{"server":"name","tool":"name","arguments":{}}}}  invoke a configured MCP tool
 When the task is fully implemented, respond with EXACTLY:
 {"finish":{"summary":"what you did","files":["work/..."]}}"#
 }
@@ -67,7 +71,12 @@ impl ToolState {
             work_root: root,
             written: Vec::new(),
             written_bytes: 0,
+            mcp: McpRegistry::from_env()?,
         })
+    }
+
+    pub fn tool_spec(&self) -> String {
+        format!("{}\nMCP: {}", tool_spec(), self.mcp.prompt_description())
     }
 
     pub fn written_files(&self) -> &[String] {
@@ -113,6 +122,8 @@ impl ToolState {
                 "grep" => self.grep(args),
                 "run_command" => self.run_command(args),
                 "git_status" => self.git_status(),
+                "mcp_list_tools" => self.mcp_list_tools(args),
+                "mcp_call" => self.mcp_call(args),
                 other => bail!("unknown tool '{other}'"),
             }
         })();
@@ -357,6 +368,32 @@ impl ToolState {
         } else {
             Ok(truncate_tail(&text, MAX_OUTPUT_BYTES))
         }
+    }
+
+    fn mcp_list_tools(&self, args: &Value) -> Result<String> {
+        let server = args
+            .get("server")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("mcp_list_tools: `server` is required"))?;
+        serde_json::to_string_pretty(&self.mcp.list_tools(server)?)
+            .context("cannot serialize MCP tools response")
+    }
+
+    fn mcp_call(&self, args: &Value) -> Result<String> {
+        let server = args
+            .get("server")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("mcp_call: `server` is required"))?;
+        let tool = args
+            .get("tool")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("mcp_call: `tool` is required"))?;
+        let arguments = args
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Default::default()));
+        serde_json::to_string_pretty(&self.mcp.call_tool(server, tool, arguments)?)
+            .context("cannot serialize MCP tool response")
     }
 }
 

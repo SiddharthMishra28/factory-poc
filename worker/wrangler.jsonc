@@ -15,7 +15,7 @@
     { "tag": "v1", "new_sqlite_classes": ["GoalRoom"] }
   ],
   "vars": {
-    "RETRY_LIMIT": "3",
-    "LLM_PROVIDER": "zen"
+    "RETRY_LIMIT": "12",
+    "LLM_PROVIDER": "nim"
   }
 }

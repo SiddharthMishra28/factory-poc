@@ -336,6 +336,7 @@
         <strong>Goals</strong>
         <span class="spacer"></span>
         <input id="worker-url" placeholder="Worker URL" spellcheck="false" />
+        <input id="approval-token" placeholder="Approval token" type="password" autocomplete="off" />
         <button id="refresh" class="btn btn-ghost" style="padding:8px 14px; font-size:13px">Refresh</button>
       </div>
 
@@ -368,7 +369,7 @@
   <script>
     const WORKER_DEFAULT = "https://factory-poc-worker.shared-drive-temp.workers.dev";
 
-    const state = { worker: "", goal: null, submitting: false };
+    const state = { worker: "", approvalToken: "", goal: null, submitting: false };
     const $ = id => document.getElementById(id);
 
     function base() { return state.worker.replace(/\/+$/, ""); }
@@ -384,7 +385,7 @@
       return res.json();
     }
 
-    const statusClass = { new: "new", planning: "planning", in_progress: "in_progress", passed: "passed", failed: "failed" };
+    const statusClass = { new: "new", planning: "planning", in_progress: "in_progress", awaiting_acceptance: "in_progress", accepted: "passed", failed: "failed" };
 
     /* ---------- routing ---------- */
     function route() {
@@ -432,6 +433,7 @@
           <div class="meta">${esc(g.id)} · created ${new Date(g.created_at).toLocaleString()}
             ${g.updated_at ? " · updated " + new Date(g.updated_at).toLocaleString() : ""}
             · attempts ${g.attempts}/${g.retry_limit}</div>
+          ${g.status === "awaiting_acceptance" ? '<button class="btn btn-primary" id="accept-goal">Accept goal</button>' : ""}
           <h4>Stages</h4>
           <table><tr><th>id</th><th>role</th><th>status</th><th>objective</th></tr>
           ${g.stages.map(s => `
@@ -442,8 +444,29 @@
           <h4>History</h4>
           <ul class="history">${g.history.map(h => `<li>${esc(h)}</li>`).join("") || '<li class="muted">none</li>'}</ul>
           ${last ? `<h4>Latest result</h4><pre>${esc(JSON.stringify(last.result, null, 2))}</pre>` : ""}`;
+        $("accept-goal")?.addEventListener("click", () => acceptGoal(g.id));
       } catch (e) {
         detail.innerHTML = `<p class="muted">Error: ${esc(e.message)}</p>`;
+      }
+    }
+
+    async function acceptGoal(id) {
+      if (!state.approvalToken) {
+        alert("Enter the approval token before accepting this goal.");
+        return;
+      }
+      try {
+        await api("/api/goals/" + id + "/accept", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goal-approval-token": state.approvalToken,
+          },
+        });
+        await loadGoals();
+        await loadGoal(id);
+      } catch (e) {
+        alert("Could not accept goal: " + e.message);
       }
     }
 
@@ -507,6 +530,10 @@
       localStorage.setItem("worker", state.worker);
       loadGoals();
     });
+    $("approval-token").addEventListener("change", e => {
+      state.approvalToken = e.target.value;
+      sessionStorage.setItem("goalApprovalToken", state.approvalToken);
+    });
     $("nav-cta").addEventListener("click", () => location.hash = "#/app");
     $("hero-cta").addEventListener("click", () => location.hash = "#/app");
     $("footer-cta").addEventListener("click", () => location.hash = "#/app");
@@ -524,6 +551,8 @@
       || localStorage.getItem("worker")
       || WORKER_DEFAULT;
     $("worker-url").value = state.worker;
+    state.approvalToken = sessionStorage.getItem("goalApprovalToken") || "";
+    $("approval-token").value = state.approvalToken;
     route();
     autosize();
   </script>

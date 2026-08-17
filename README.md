@@ -49,8 +49,16 @@ Expected: planner -> developer -> qa (finds the seeded bug) -> evaluator FAIL
 `.env.example` lists them. The worker needs `GITHUB_TOKEN` (PAT with
 `repo` + `workflow` scopes), `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`,
 `AGENT_TOKEN` (worker-side bearer), `WEBHOOK_SECRET`. The workflow needs
-`WORKER_URL`, `AGENT_TOKEN`, `LLM_PROVIDER`, `ZEN_API_KEY`/`ZEN_MODEL` or
-`GROQ_API_KEY`/`GROQ_MODEL`.
+`WORKER_URL`, `AGENT_TOKEN`, `LLM_PROVIDER`, and provider credentials.
+NVIDIA NIM uses `NVIDIA_API_KEY` and defaults to
+`stepfun-ai/step-3.7-flash` (override with `NIM_MODEL`). The workflow's
+global queue and the runner's two-second request gate keep NIM below 30
+requests per minute. Configure remote HTTP or stdio MCP servers with the
+`MCP_SERVERS_JSON` secret; see `mcp.servers.example.json`.
+
+The final evaluator PASS waits for user approval. Configure the Worker secret
+`GOAL_APPROVAL_TOKEN`, then enter it in the dashboard and select **Accept
+goal**. The terminal goal status is `accepted`.
 
 ## Deploy
 
